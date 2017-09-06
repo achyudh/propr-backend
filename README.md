@@ -1,20 +1,17 @@
 # Pull Request Feedback Servlet
 A webhook server that listens for POST requests from certain Github repos whenever a decision is taken on a pull request and provides a form to collect feedback from the developers by commenting on the pull request like a bot. 
 
-## Getting started:
 ![](https://raw.githubusercontent.com/achyudhk/Pull-Request-Feedback-Bot/master/doc/screenshot.png)
 
+## Getting started:
 ### Prerequisites:
 This extension is a Python script that uses Flask, among other inbuilt Python libraries. You will need a recent version of Python 3 with Flask installed. ALternatively, you can just use Anaconda3.
-
 ### Setup:
-You can run the server.py as a standard Flask app as shown inthe [docs](http://flask.pocoo.org/docs/0.12/). To enable a project to use this feedback boot, the project must have a webhook which connects to the IP address of the machine that is running the servlet. To see more about how to seup web hooks, [see this page](https://developer.github.com/webhooks/creating/).
+You can run the server.py as a standard Flask app as shown inthe [docs](http://flask.pocoo.org/docs/0.12/). To enable a project to use this feedback boot, the project must have a webhook which connects to the IP address of the machine that is running the servlet. The option to add a webhook can be found under Settings -> Webhooks. Ensure that the only data that is being sent over is that related to Pull Requests. To see more about how to seup web hooks, [see this page](https://developer.github.com/webhooks/creating/). 
 
 ## Data collected:
 * It stores a local copy of the patch from the pull request in the server.
 * The ratings and comments filled in the form posted by the bot will be saved in a cloud database along with publicly available information about the pull request and the commits it is comprised of. For more information see [this repo](https://github.com/achyudhk/Pull-Request-Feedback-Website).
-
-
 
 ## Limitations:
 * Due to the use of Github API this is fully functional for public repositories in Github.com and not for corporate repos.
