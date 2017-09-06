@@ -1,5 +1,5 @@
 # Pull Request Feedback Bot
-A webhook server that listens for POST requests from certain Github repos whenever a decision is taken on a pull request and provides a form to collect feedback from the developers by cmmenting on the pull request as a bot.
+A webhook server that listens for POST requests from certain Github repos whenever a decision is taken on a pull request and provides a form to collect feedback from the developers by commenting on the pull request as a bot.
 
 ![](https://raw.githubusercontent.com/achyudhk/Pull-Request-Feedback-Bot/master/doc/screenshot.png)
 
