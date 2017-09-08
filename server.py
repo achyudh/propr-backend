@@ -1,16 +1,18 @@
-from flask import Flask, request, abort
+from flask import Flask, request, abort, redirect
 from requests.auth import HTTPBasicAuth
-import requests, json, urllib, pymongo
+import requests, json, urllib, pymongo, sys
 
 app = Flask(__name__)
-
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     http_auth = HTTPBasicAuth('prfeedback', 'rosetta11')
     if request.method == 'POST':
+        if request.json is None:
+            print_all((request.headers, request.data))
+            return '', 500
 
-        if "zen" in request.json:
+        elif "zen" in request.json:
             # POST request has initial webhook and repo details
             client = pymongo.MongoClient()
             pr_db = client.pr_database
@@ -24,15 +26,18 @@ def webhook():
             pr_id = parsed_json["pull_request"]["id"]
             repo_id = parsed_json["pull_request"]["base"]["repo"]["id"]
 
-            # Only part of the URL is encoded: the owner and repo name
+            # Only part of the repo URL is encoded: the owner and repo name
             encoded_url = urllib.parse.quote_plus(parsed_json["pull_request"]["base"]["repo"]["full_name"])
-            feedback_url = "http:/dutiap.st.ewi.tudelft.nl:60001/index.html?url=%s&prid=%s&repoid=%s&prnum=%s" % (encoded_url, pr_id, repo_id, pr_num)
+            # This is the entire URL of the PR to which the user iis redirected to once the form is filled
+            encoded_return_url = urllib.parse.quote_plus(parsed_json["pull_request"]["html_url"])
+            feedback_url = "http:/dutiap.st.ewi.tudelft.nl:60001/index.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num)
 
             # Send POST request to comment on the PR with feedback link
             pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
             pr_comment_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (parsed_json["pull_request"]["base"]["repo"]["full_name"], pr_num)
             requests.post(pr_comment_url, data=pr_comment_payload,auth=http_auth)
-            download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
+            if not request.json["pull_request"]["base"]["repo"]["private"]:
+                download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
             return '', 200
 
         elif request.json["action"] == "submit":
@@ -56,7 +61,6 @@ def webhook():
             if len(response_json) > 0:
                 pr_db.pr_commits.insert_many(response_json)
 
-
             # Insert PR comments into DB
             request_url = 'https://api.github.com/repos/%s/pulls/%s/comments' % (full_repo_name, pr_num)
             response_json = requests.get(request_url, auth=http_auth).json()
@@ -78,6 +82,11 @@ def webhook():
     else:
         abort(400)
 
+@app.route('/redir', methods=['POST'])
+def redir():
+    if request.method == 'POST':
+        redirect(request.json['url'], code=302)
+
 
 @app.after_request
 def after_request(response):
@@ -89,6 +98,7 @@ def after_request(response):
             response.headers['Access-Control-Allow-Headers'] = headers
     return response
 
+
 def download_patch(url, http_auth, pr_id, repo_id):
     response_data = requests.get(url, auth=http_auth)
     if response_data.status_code == 200:
@@ -96,6 +106,12 @@ def download_patch(url, http_auth, pr_id, repo_id):
             f.write(response_data.content)
     else:
         print("Error downloading patch: Status Code " + response_data.status_code)
+
+
+def print_all(to_print):
+    # Easy way to print to console is through stderr
+    for item in to_print:
+        print(item, file=sys.stderr)
 
 
 if __name__ == '__main__':
