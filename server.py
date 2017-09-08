@@ -9,7 +9,16 @@ app = Flask(__name__)
 def webhook():
     http_auth = HTTPBasicAuth('prfeedback', 'rosetta11')
     if request.method == 'POST':
-        if request.json["action"] == "closed":
+
+        if "zen" in request.json:
+            # POST request has initial webhook and repo details
+            client = pymongo.MongoClient()
+            pr_db = client.pr_database
+            # Insert init repo info into DB
+            pr_db.webhook_init.insert_one(request.json)
+            return '', 200
+
+        elif request.json["action"] == "closed":
             parsed_json = request.json
             pr_num = parsed_json["pull_request"]["number"]
             pr_id = parsed_json["pull_request"]["id"]
