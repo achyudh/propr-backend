@@ -1,23 +1,17 @@
-from flask import Flask, request, abort, redirect, session, g
-from flask_session import Session
+from flask import Flask, request, redirect, session
 from requests.auth import HTTPBasicAuth
 import requests, json, urllib, pymongo, sys
 import time
-from jwt import JWT, jwk_from_dict, jwk_from_pem
-import Crypto.PublicKey.RSA as RSA
+from jwt import JWT, jwk_from_pem
 
 
 app = Flask(__name__)
-sess = Session()
 with open("config.json", 'r') as config_file:
     client_config = json.load(config_file)
 with open("private-key.pem", 'rb') as priv_key_file:
     priv_key = jwk_from_pem(priv_key_file.read())
-app.config['SESSION_TYPE'] = 'mongodb'
-app.secret_key = client_config['APP_SECRET']
 http_auth_username = client_config['HTTP_AUTH_USERNAME']
 http_auth_secret = client_config['HTTP_AUTH_SECRET']
-sess.init_app(app)
 
 
 @app.route('/webhook', methods=['POST'])
@@ -28,7 +22,7 @@ def webhook():
             print("NULL REQUEST: " + request.headers, file=sys.stderr)
             return '', 500
 
-        elif request.headers['X-GitHub-Event'] == "ping":
+        elif "action" not in request.json and request.headers['X-GitHub-Event'] == "ping":
             # POST request has initial webhook and repo details
             client = pymongo.MongoClient()
             pr_db = client.pr_database
@@ -36,10 +30,10 @@ def webhook():
             pr_db.webhook_init.insert_one(request.json)
             return '', 200
 
-        elif request.headers['X-GitHub-Event'] == "installation" and request.json["action"] == "created":
+        elif request.json["action"] == "created" and request.headers['X-GitHub-Event'] == "installation":
             return 'Install successful', 200
 
-        elif request.headers['X-GitHub-Event'] == "pull_request" and request.json["action"] == "closed":
+        elif request.json["action"] == "closed" and request.headers['X-GitHub-Event'] == "pull_request":
             parsed_json = request.json
             is_private_repo = request.json["pull_request"]["base"]["repo"]["private"]
             pr_num = parsed_json["pull_request"]["number"]
@@ -56,14 +50,15 @@ def webhook():
                 feedback_url = "http:/dutiap.st.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (
                 encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
                 pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
-                requests.post(pr_comment_url, data=pr_comment_payload, headers=get_auth_header(request.json["installation"]["id"]))
+                r = requests.post(pr_comment_url, data=pr_comment_payload, headers=get_auth_header(request.json["installation"]["id"]))
             else:
                 feedback_url = "http:/dutiap.st.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (
                 encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
                 pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
-                requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
-                download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
-            return '', 200
+                r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
+                if not is_private_repo:
+                    download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
+            return str((r.headers, r.json())), 200
 
         elif request.json["action"] == "submit":
             client = pymongo.MongoClient()
