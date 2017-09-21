@@ -1,3 +1,5 @@
+import hashlib
+
 from flask import Flask, request, redirect, session
 from requests.auth import HTTPBasicAuth
 import requests, json, urllib, pymongo, sys
@@ -47,12 +49,12 @@ def webhook():
             # Send POST request to comment on the PR with feedback link
             pr_comment_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (parsed_json["pull_request"]["base"]["repo"]["full_name"], pr_num)
             if "installation" in request.json:
-                feedback_url = "http:/dutiap.st.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (
+                feedback_url = "http:/chennai.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (
                 encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
                 pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
                 r = requests.post(pr_comment_url, data=pr_comment_payload, headers=get_auth_header(request.json["installation"]["id"]))
             else:
-                feedback_url = "http:/dutiap.st.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (
+                feedback_url = "http:/chennai.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (
                 encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
                 pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
                 r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
@@ -84,7 +86,7 @@ def redir():
 
 @app.after_request
 def after_request(response):
-    response.headers['Access-Control-Allow-Origin'] = 'http://dutiap.st.ewi.tudelft.nl:60001'
+    response.headers['Access-Control-Allow-Origin'] = 'http://chennai.ewi.tudelft.nl:60001'
     if request.method == 'OPTIONS':
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST'
         headers = request.headers.get('Access-Control-Request-Headers')
@@ -129,16 +131,24 @@ def insert_into_db(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, 
         response_json = requests.get(request_url, headers=headers).json()
     else:
         response_json = requests.get(request_url, auth=http_auth).json()
-    pr_db.pr_info.insert_one(response_json)
-
+    response_json['_id'] = hashlib.sha256(str.encode(str(response_json))).hexdigest()
+    try:
+        pr_db.pr_info.insert_one(response_json)
+    except Exception as e:
+        print(e)
     # Insert commits into DB
     request_url = 'https://api.github.com/repos/%s/pulls/%s/commits' % (full_repo_name, pr_num)
     if headers is not None:
         response_json = requests.get(request_url, headers=headers).json()
     else:
         response_json = requests.get(request_url, auth=http_auth).json()
+    for commit_json in response_json:
+        commit_json['_id'] = hashlib.sha256(str.encode(str(commit_json))).hexdigest()
     if len(response_json) > 0:
-        pr_db.pr_commits.insert_many(response_json)
+        try:
+            pr_db.pr_commits.insert_many(response_json, ordered=False)
+        except Exception as e:
+            print(e)
 
     # Insert PR comments into DB
     request_url = 'https://api.github.com/repos/%s/pulls/%s/comments' % (full_repo_name, pr_num)
@@ -146,8 +156,13 @@ def insert_into_db(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, 
         response_json = requests.get(request_url, headers=headers).json()
     else:
         response_json = requests.get(request_url, auth=http_auth).json()
+    for comment_json in response_json:
+        comment_json['_id'] = hashlib.sha256(str.encode(str(comment_json))).hexdigest()
     if len(response_json) > 0:
-        pr_db.pr_comments.insert_many(response_json)
+        try:
+            pr_db.pr_comments.insert_many(response_json, ordered=False)
+        except Exception as e:
+            print(e)
 
     # Insert PR reviews into DB
     request_url = 'https://api.github.com/repos/%s/pulls/%s/reviews' % (full_repo_name, pr_num)
@@ -155,8 +170,13 @@ def insert_into_db(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, 
         response_json = requests.get(request_url, headers=headers).json()
     else:
         response_json = requests.get(request_url, auth=http_auth).json()
+    for comment_json in response_json:
+        comment_json['_id'] = hashlib.sha256(str.encode(str(comment_json))).hexdigest()
     if len(response_json) > 0:
-        pr_db.pr_reviews.insert_many(response_json)
+        try:
+            pr_db.pr_reviews.insert_many(response_json, ordered=False)
+        except Exception as e:
+            print(e)
 
     # Insert issue comments into DB
     request_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (full_repo_name, pr_num)
@@ -164,8 +184,13 @@ def insert_into_db(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, 
         response_json = requests.get(request_url, headers=headers).json()
     else:
         response_json = requests.get(request_url, auth=http_auth).json()
+    for comment_json in response_json:
+        comment_json['_id'] = hashlib.sha256(str.encode(str(comment_json))).hexdigest()
     if len(response_json) > 0:
-        pr_db.issue_comments.insert_many(response_json)
+        try:
+            pr_db.issue_comments.insert_many(response_json, ordered=False)
+        except Exception as e:
+            print(e)
 
     # Insert patch and files into DB
     request_url = 'https://api.github.com/repos/%s/pulls/%s/files' % (full_repo_name, pr_num)
@@ -174,9 +199,13 @@ def insert_into_db(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, 
             response_json = requests.get(request_url, headers=headers).json()
         else:
             response_json = requests.get(request_url, auth=http_auth).json()
+        for file_json in response_json:
+            file_json['_id'] = hashlib.sha256(str.encode(str(file_json))).hexdigest()
         if len(response_json) > 0:
-            pr_db.pr_files.insert_many(response_json)
-
+            try:
+                pr_db.pr_files.insert_many(response_json, ordered=False)
+            except Exception as e:
+                print(e)
 
 if __name__ == '__main__':
     app.run()
