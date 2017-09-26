@@ -1,24 +1,93 @@
-import hashlib
-
-from flask import Flask, request, redirect, session
-from requests.auth import HTTPBasicAuth
-import requests, json, urllib, pymongo, sys
-import time
+from flask import Flask, request, redirect, session, jsonify, g
+from flask_session import Session
+from flask.ext.github import GitHub
 from jwt import JWT, jwk_from_pem
+from requests.auth import HTTPBasicAuth
+from util import io
+from util.user import User
+from bson.objectid import ObjectId
+from db import handler
+import requests, json, urllib, pymongo, sys, time, hashlib
 
 
 app = Flask(__name__)
+sess = Session()
 with open("config.json", 'r') as config_file:
     client_config = json.load(config_file)
 with open("private-key.pem", 'rb') as priv_key_file:
     priv_key = jwk_from_pem(priv_key_file.read())
 http_auth_username = client_config['HTTP_AUTH_USERNAME']
 http_auth_secret = client_config['HTTP_AUTH_SECRET']
+http_auth = HTTPBasicAuth(http_auth_username, http_auth_secret)
+app.config['SESSION_TYPE'] = 'mongodb'
+app.config['GITHUB_CLIENT_ID'] = client_config['GITHUB_CLIENT_ID']
+app.config['GITHUB_CLIENT_SECRET'] = client_config['GITHUB_CLIENT_SECRET']
+sess.init_app(app)
+github = GitHub(app)
+
+
+@app.route('/submit', methods=['POST'])
+def submit():
+    if request.method == 'POST' and request.json["action"] == 'feedback':
+        client = pymongo.MongoClient()
+        pr_db = client.pr_database
+        pr_num = request.json["pr_num"]
+        full_repo_name = request.json["full_repo_name"]
+        if request.json["inst_id"] != "None":
+            state = handler.insert(request, pr_db, full_repo_name, pr_num, headers=get_auth_header(request.json["inst_id"]),
+                              code_privacy=request.json["code_privacy"])
+        else:
+            state = handler.insert(request, pr_db, full_repo_name, pr_num, http_auth=http_auth,
+                              code_privacy=request.json["code_privacy"])
+        return 'https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state, 200
+    else:
+        return 'Request not handled', 501
+
+
+@app.route('/callback', methods=['GET', 'POST'])
+def callback_handler():
+    client = pymongo.MongoClient()
+    response = {'code': request.args.get('code'),
+                'client_id': client_config['GITHUB_CLIENT_ID'],
+                'client_secret': client_config['GITHUB_CLIENT_SECRET']}
+    r = requests.post("https://github.com/login/oauth/access_token", data=response, headers={'Accept': 'application/json'})
+    oauth_token = r.json()['access_token']
+    if oauth_token is not None:
+        user_coll = client.user_database.oauth_tokens
+        user = User.find_by_token(oauth_token, user_coll)
+        if user is None:
+            user = User(oauth_token)
+            # Add user to DB if not already present
+            user.insert_into_db(user_coll)
+        session['user_id'] = user.id
+    response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
+    user_info = {
+        "id": hashlib.sha256(str.encode(response_user["login"])).hexdigest(),
+        "public_repos": response_user["public_repos"],
+        "public_gists": response_user["public_gists"],
+        "followers": response_user["followers"],
+        "following": response_user["following"],
+        "created_at": response_user["created_at"],
+        "updated_at": response_user["updated_at"],
+        "private_gists": response_user["private_gists"],
+        "total_private_repos": response_user["total_private_repos"],
+        "owned_private_repos": response_user["owned_private_repos"],
+        "collaborators": response_user["collaborators"]
+    }
+    feedback_coll = client.pr_database.pr_feedback
+    result = feedback_coll.find_one({"_id": ObjectId(request.args.get('state'))})
+    feedback_coll.update_one(
+        {"_id": ObjectId(request.args.get('state'))},
+        {'$set': {'user': user_info}}
+    )
+    if result['pr_url'] is not None:
+        return redirect(result['pr_url'])
+    else:
+        return "DB entry not found", 500
 
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    http_auth = HTTPBasicAuth(http_auth_username, http_auth_secret)
     if request.method == 'POST':
         if request.json is None:
             print("NULL REQUEST: " + request.headers, file=sys.stderr)
@@ -59,19 +128,8 @@ def webhook():
                 pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
                 r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
                 if not is_private_repo:
-                    download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
+                    io.download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
             return str((r.headers, r.json())), 200
-
-        elif request.json["action"] == "submit":
-            client = pymongo.MongoClient()
-            pr_db = client.pr_database
-            pr_num = request.json["pr_num"]
-            full_repo_name = request.json["full_repo_name"]
-            if request.json["inst_id"] != "None":
-                insert_into_db(pr_db, full_repo_name, pr_num, headers=get_auth_header(request.json["inst_id"]), code_privacy=request.json["code_privacy"])
-            else:
-                insert_into_db(pr_db, full_repo_name, pr_num, http_auth=http_auth, code_privacy=request.json["code_privacy"])
-            return '', 200
         else:
             return 'Request not handled', 501
     else:
@@ -86,13 +144,29 @@ def redir():
 
 @app.after_request
 def after_request(response):
-    response.headers['Access-Control-Allow-Origin'] = 'http://chennai.ewi.tudelft.nl:60001'
+    response.headers['Access-Control-Allow-Origin'] = '*'
     if request.method == 'OPTIONS':
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST'
         headers = request.headers.get('Access-Control-Request-Headers')
         if headers:
             response.headers['Access-Control-Allow-Headers'] = headers
     return response
+
+
+@github.access_token_getter
+def token_getter():
+    user = g.user
+    if user is not None:
+        return user.github_access_token
+
+
+@app.before_request
+def before_request():
+    g.user = None
+    client = pymongo.MongoClient()
+    user_coll = client.user_database.oauth_tokens
+    if 'user_id' in session:
+        g.user = User.find_by_id(session['user_id'], user_coll)
 
 
 def get_auth_header(installation_id):
@@ -110,102 +184,6 @@ def get_auth_header(installation_id):
                    "Accept": "application/vnd.github.machine-man-preview+json"}
     return ret_headers
 
-
-def download_patch(url, http_auth, pr_id, repo_id):
-    response_data = requests.get(url, auth=http_auth)
-    if response_data.status_code == 200:
-        with open('patches/%s-%s.txt' % (str(pr_id), str(repo_id)), 'wb') as f:
-            f.write(response_data.content)
-    else:
-        print("Error downloading patch: Status Code " + response_data.status_code)
-
-
-def insert_into_db(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, code_privacy=False):
-    # Insert feedback into DB
-    del request.json["action"]
-    pr_db.pr_feedback.insert_one(request.json)
-
-    # Insert PR info into DB
-    request_url = 'https://api.github.com/repos/%s/pulls/%s' % (full_repo_name, pr_num)
-    if headers is not None:
-        response_json = requests.get(request_url, headers=headers).json()
-    else:
-        response_json = requests.get(request_url, auth=http_auth).json()
-    response_json['_id'] = hashlib.sha256(str.encode(str(response_json))).hexdigest()
-    try:
-        pr_db.pr_info.insert_one(response_json)
-    except Exception as e:
-        print(e)
-    # Insert commits into DB
-    request_url = 'https://api.github.com/repos/%s/pulls/%s/commits' % (full_repo_name, pr_num)
-    if headers is not None:
-        response_json = requests.get(request_url, headers=headers).json()
-    else:
-        response_json = requests.get(request_url, auth=http_auth).json()
-    for commit_json in response_json:
-        commit_json['_id'] = hashlib.sha256(str.encode(str(commit_json))).hexdigest()
-    if len(response_json) > 0:
-        try:
-            pr_db.pr_commits.insert_many(response_json, ordered=False)
-        except Exception as e:
-            print(e)
-
-    # Insert PR comments into DB
-    request_url = 'https://api.github.com/repos/%s/pulls/%s/comments' % (full_repo_name, pr_num)
-    if headers is not None:
-        response_json = requests.get(request_url, headers=headers).json()
-    else:
-        response_json = requests.get(request_url, auth=http_auth).json()
-    for comment_json in response_json:
-        comment_json['_id'] = hashlib.sha256(str.encode(str(comment_json))).hexdigest()
-    if len(response_json) > 0:
-        try:
-            pr_db.pr_comments.insert_many(response_json, ordered=False)
-        except Exception as e:
-            print(e)
-
-    # Insert PR reviews into DB
-    request_url = 'https://api.github.com/repos/%s/pulls/%s/reviews' % (full_repo_name, pr_num)
-    if headers is not None:
-        response_json = requests.get(request_url, headers=headers).json()
-    else:
-        response_json = requests.get(request_url, auth=http_auth).json()
-    for comment_json in response_json:
-        comment_json['_id'] = hashlib.sha256(str.encode(str(comment_json))).hexdigest()
-    if len(response_json) > 0:
-        try:
-            pr_db.pr_reviews.insert_many(response_json, ordered=False)
-        except Exception as e:
-            print(e)
-
-    # Insert issue comments into DB
-    request_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (full_repo_name, pr_num)
-    if headers is not None:
-        response_json = requests.get(request_url, headers=headers).json()
-    else:
-        response_json = requests.get(request_url, auth=http_auth).json()
-    for comment_json in response_json:
-        comment_json['_id'] = hashlib.sha256(str.encode(str(comment_json))).hexdigest()
-    if len(response_json) > 0:
-        try:
-            pr_db.issue_comments.insert_many(response_json, ordered=False)
-        except Exception as e:
-            print(e)
-
-    # Insert patch and files into DB
-    request_url = 'https://api.github.com/repos/%s/pulls/%s/files' % (full_repo_name, pr_num)
-    if not code_privacy:
-        if headers is not None:
-            response_json = requests.get(request_url, headers=headers).json()
-        else:
-            response_json = requests.get(request_url, auth=http_auth).json()
-        for file_json in response_json:
-            file_json['_id'] = hashlib.sha256(str.encode(str(file_json))).hexdigest()
-        if len(response_json) > 0:
-            try:
-                pr_db.pr_files.insert_many(response_json, ordered=False)
-            except Exception as e:
-                print(e)
 
 if __name__ == '__main__':
     app.run()
