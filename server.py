@@ -1,12 +1,11 @@
-from flask import Flask, request, redirect, session, jsonify, g
+from flask import Flask, request, redirect, session, g
 from flask_session import Session
 from flask.ext.github import GitHub
 from jwt import JWT, jwk_from_pem
 from requests.auth import HTTPBasicAuth
 from util import io
 from util.user import User
-from bson.objectid import ObjectId
-from db import handler
+from db import insert
 import requests, json, urllib, pymongo, sys, time, hashlib
 
 
@@ -28,62 +27,39 @@ github = GitHub(app)
 
 @app.route('/submit', methods=['POST'])
 def submit():
-    if request.method == 'POST' and request.json["action"] == 'feedback':
+    if request.json["action"] == 'feedback':
+        client = pymongo.MongoClient()
+        pr_db = client.pr_database
+        if session.get('user_token', None) is None:
+            state = insert.feedback(request.json, pr_db)
+            return 'https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state, 200
+        else:
+            return insert.feedback_with_participant(request, pr_db, session['user_token'])
+
+    elif request.json["action"] == 'context':
         client = pymongo.MongoClient()
         pr_db = client.pr_database
         pr_num = request.json["pr_num"]
         full_repo_name = request.json["full_repo_name"]
         if request.json["inst_id"] != "None":
-            state = handler.insert(request, pr_db, full_repo_name, pr_num, headers=get_auth_header(request.json["inst_id"]),
-                              code_privacy=request.json["code_privacy"])
+            insert.context(pr_db, full_repo_name, pr_num, headers=get_auth_header(request.json["inst_id"]), code_privacy=request.json["code_privacy"])
         else:
-            state = handler.insert(request, pr_db, full_repo_name, pr_num, http_auth=http_auth,
-                              code_privacy=request.json["code_privacy"])
-        return 'https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state, 200
+            insert.context(pr_db, full_repo_name, pr_num, http_auth=http_auth, code_privacy=request.json["code_privacy"])
+        return 'Context inserted into DB', 200
     else:
         return 'Request not handled', 501
 
 
 @app.route('/callback', methods=['GET', 'POST'])
 def callback_handler():
-    client = pymongo.MongoClient()
     response = {'code': request.args.get('code'),
                 'client_id': client_config['GITHUB_CLIENT_ID'],
                 'client_secret': client_config['GITHUB_CLIENT_SECRET']}
     r = requests.post("https://github.com/login/oauth/access_token", data=response, headers={'Accept': 'application/json'})
     oauth_token = r.json()['access_token']
     if oauth_token is not None:
-        user_coll = client.user_database.oauth_tokens
-        user = User.find_by_token(oauth_token, user_coll)
-        if user is None:
-            user = User(oauth_token)
-            # Add user to DB if not already present
-            user.insert_into_db(user_coll)
-        session['user_id'] = user.id
-    response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
-    user_info = {
-        "id": hashlib.sha256(str.encode(response_user["login"])).hexdigest(),
-        "public_repos": response_user["public_repos"],
-        "public_gists": response_user["public_gists"],
-        "followers": response_user["followers"],
-        "following": response_user["following"],
-        "created_at": response_user["created_at"],
-        "updated_at": response_user["updated_at"],
-        "private_gists": response_user["private_gists"],
-        "total_private_repos": response_user["total_private_repos"],
-        "owned_private_repos": response_user["owned_private_repos"],
-        "collaborators": response_user["collaborators"]
-    }
-    feedback_coll = client.pr_database.pr_feedback
-    result = feedback_coll.find_one({"_id": ObjectId(request.args.get('state'))})
-    feedback_coll.update_one(
-        {"_id": ObjectId(request.args.get('state'))},
-        {'$set': {'user': user_info}}
-    )
-    if result['pr_url'] is not None:
-        return redirect(result['pr_url'])
-    else:
-        return "DB entry not found", 500
+        session['user_token'] = oauth_token
+    return insert.participant(oauth_token, request.args.get('state'))
 
 
 @app.route('/webhook', methods=['POST'])
@@ -127,8 +103,8 @@ def webhook():
                 encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
                 pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
                 r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
-                if not is_private_repo:
-                    io.download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
+            if not is_private_repo:
+                io.download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
             return str((r.headers, r.json())), 200
         else:
             return 'Request not handled', 501
@@ -163,10 +139,8 @@ def token_getter():
 @app.before_request
 def before_request():
     g.user = None
-    client = pymongo.MongoClient()
-    user_coll = client.user_database.oauth_tokens
-    if 'user_id' in session:
-        g.user = User.find_by_id(session['user_id'], user_coll)
+    if 'user_token' in session:
+        g.user = User(session['user_token'])
 
 
 def get_auth_header(installation_id):
@@ -186,4 +160,4 @@ def get_auth_header(installation_id):
 
 
 if __name__ == '__main__':
-    app.run()
+    app.run(threaded=True)

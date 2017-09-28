@@ -1,11 +1,36 @@
-import requests, hashlib, sys
+import requests, hashlib, sys, pymongo
+from bson.objectid import ObjectId
+from flask import redirect
 
 
-def insert(request, pr_db, full_repo_name, pr_num, http_auth=None, headers=None, code_privacy=False):
+def feedback(request, pr_db):
     # Insert feedback into DB
-    del request.json["action"]
-    ret_val = pr_db.pr_feedback.insert_one(request.json).inserted_id
+    del request["action"]
+    return pr_db.pr_feedback.insert_one(request).inserted_id
 
+
+def feedback_with_participant(request, pr_db, oauth_token):
+    del request["action"]
+    response_user = requests.get("https://api.github.com/user",
+                                 headers={'Authorization': 'token %s' % oauth_token}).json()
+    request["user"] = {
+        "id": hashlib.sha256(str.encode(response_user["login"])).hexdigest(),
+        "public_repos": response_user["public_repos"],
+        "public_gists": response_user["public_gists"],
+        "followers": response_user["followers"],
+        "following": response_user["following"],
+        "created_at": response_user["created_at"],
+        "updated_at": response_user["updated_at"],
+        "private_gists": response_user["private_gists"],
+        "total_private_repos": response_user["total_private_repos"],
+        "owned_private_repos": response_user["owned_private_repos"],
+        "collaborators": response_user["collaborators"]
+    }
+    pr_db.pr_feedback.insert_one(request)
+    return redirect(request['pr_url'])
+
+
+def context(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, code_privacy=False):
     # Insert PR info into DB
     request_url = 'https://api.github.com/repos/%s/pulls/%s' % (full_repo_name, pr_num)
     if headers is not None:
@@ -88,4 +113,32 @@ def insert(request, pr_db, full_repo_name, pr_num, http_auth=None, headers=None,
                 pr_db.pr_files.insert_many(response_json, ordered=False)
             except Exception as e:
                 print("IGNORING" + str(e), file=sys.stderr)
-    return ret_val
+
+
+def participant(oauth_token, state):
+    client = pymongo.MongoClient()
+    response_user = requests.get("https://api.github.com/user",
+                                 headers={'Authorization': 'token %s' % oauth_token}).json()
+    user_info = {
+        "id": hashlib.sha256(str.encode(response_user["login"])).hexdigest(),
+        "public_repos": response_user["public_repos"],
+        "public_gists": response_user["public_gists"],
+        "followers": response_user["followers"],
+        "following": response_user["following"],
+        "created_at": response_user["created_at"],
+        "updated_at": response_user["updated_at"],
+        "private_gists": response_user["private_gists"],
+        "total_private_repos": response_user["total_private_repos"],
+        "owned_private_repos": response_user["owned_private_repos"],
+        "collaborators": response_user["collaborators"]
+    }
+    feedback_coll = client.pr_database.pr_feedback
+    result = feedback_coll.find_one({"_id": ObjectId(state)})
+    feedback_coll.update_one(
+        {"_id": ObjectId(state)},
+        {"$set": {"user": user_info}}
+    )
+    if result["pr_url"] is not None:
+        return redirect(result["pr_url"])
+    else:
+        return "DB entry not found", 500

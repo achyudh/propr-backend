@@ -9,8 +9,8 @@ class User:
         self.github_access_token = github_access_token
 
     def insert_into_db(self, collection):
-            self.id = collection.insert_one({"github_access_token": self.github_access_token}).inserted_id
-            return self.id
+        self.id = collection.insert_one({"github_access_token": self.github_access_token}).inserted_id
+        return self.id
 
     @staticmethod
     def find_by_token(access_token, collection):
