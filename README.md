@@ -12,6 +12,7 @@ You can run the server.py as a standard Flask app as shown inthe [docs](http://f
 ## Data collected:
 * It stores a local copy of the patch from the pull request in the server.
 * The ratings and comments filled in the form posted by the bot will be saved in a cloud database along with publicly available information about the pull request and the commits it is comprised of. For more information see [this repo](https://github.com/achyudhk/Pull-Request-Feedback-Website).
+* We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences.
 
 ## Limitations:
 * Due to the use of Github API this is fully functional for public repositories in Github.com and not for corporate repos.
