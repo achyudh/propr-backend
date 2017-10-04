@@ -48,7 +48,7 @@ def feedback():
     is_private_repo = request.args.get('private')
     inst_id = request.args.get('instid', default='None')
     state = secrets.token_hex(12)
-    feedback_url = "http://chennai.ewi.tudelft.nl:60001/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s&state=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, inst_id, state)
+    feedback_url = "http://chennai.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s&state=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, inst_id, state)
     pr_db.state.insert_one({
         "_id": ObjectId(state),
         "feedback_url": feedback_url,
@@ -57,6 +57,7 @@ def feedback():
     if session.get('user_token', None) is None:
         return redirect('https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state)
     else:
+        insert.participant(session.get('user_token'), state)
         return redirect(feedback_url)
 
 
@@ -95,9 +96,9 @@ def callback_handler():
             response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
             return redirect('http://chennai.ewi.tudelft.nl/report.html?user=%s' % (response_user["login"]))  # TODO: Send user _id instead
         else:
+            insert.participant(oauth_token, state)
             client = pymongo.MongoClient()
             pr_db = client.state_database
-            insert.participant(oauth_token, state)
             return redirect(pr_db.find_one({"_id": ObjectId(state)})["feedback_url"])
 
 
@@ -133,11 +134,11 @@ def webhook():
             # Send POST request to comment on the PR with feedback link
             pr_comment_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (parsed_json["pull_request"]["base"]["repo"]["full_name"], pr_num)
             if "installation" in request.json:
-                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
+                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
                 pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
                 r = requests.post(pr_comment_url, data=pr_comment_payload, headers=io.get_auth_header(request.json["installation"]["id"], priv_key))
             else:
-                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
+                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
                 pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
                 r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
             if not is_private_repo:
