@@ -1,11 +1,11 @@
-from flask import Flask, request, redirect, session, g
+from flask import Flask, request, redirect, session, g, jsonify
 from flask_session import Session
 from flask.ext.github import GitHub
 from jwt import jwk_from_pem
 from requests.auth import HTTPBasicAuth
 from util import io
 from util.user import User
-from db import insert
+from db import insert, fetch
 from bson import ObjectId
 import requests, json, urllib, pymongo, sys, secrets
 
@@ -64,7 +64,7 @@ def feedback():
 @app.route('/submit', methods=['POST'])
 def submit():
     if request.json["action"] == 'history':
-        return
+        return jsonify(fetch.form_history(request.json["user_id"], request.json["pr_url"]))
 
     elif request.json["action"] == 'feedback':
         pr_num = request.json["pr_num"]
