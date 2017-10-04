@@ -57,8 +57,8 @@ def feedback():
     if session.get('user_token', None) is None:
         return redirect('https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state)
     else:
-        insert.participant(session.get('user_token'), state)
-        return redirect(feedback_url)
+        user_id = insert.participant(session.get('user_token'), state)
+        return redirect(feedback_url + "&userid=%s" % user_id)
 
 
 @app.route('/submit', methods=['POST'])
