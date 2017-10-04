@@ -63,11 +63,18 @@ def feedback():
 
 @app.route('/submit', methods=['POST'])
 def submit():
-    if request.json["action"] == 'feedback':
-        return insert.feedback_into_participant(request.json, request.json["state"])
-
-    elif request.json["action"] == 'history':
+    if request.json["action"] == 'history':
         return
+
+    elif request.json["action"] == 'feedback':
+        pr_num = request.json["pr_num"]
+        full_repo_name = request.json["full_repo_name"]
+        insert.feedback_into_participant(request.json, request.json["state"])
+        if request.json["inst_id"] != "None":
+            insert.context(full_repo_name, pr_num, headers=io.get_auth_header(request.json["inst_id"], priv_key), code_privacy=request.json["code_privacy"])
+        else:
+            insert.context(full_repo_name, pr_num, http_auth=http_auth, code_privacy=request.json["code_privacy"])
+        return 'Feedback inserted into DB', 200
 
     elif request.json["action"] == 'context':
         pr_num = request.json["pr_num"]
@@ -98,7 +105,7 @@ def callback_handler():
         else:
             insert.participant(oauth_token, state)
             client = pymongo.MongoClient()
-            pr_db = client.state_database
+            pr_db = client.pr_database.state
             return redirect(pr_db.find_one({"_id": ObjectId(state)})["feedback_url"])
 
 
