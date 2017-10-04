@@ -103,10 +103,10 @@ def callback_handler():
             response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
             return redirect('http://chennai.ewi.tudelft.nl/report.html?user=%s' % (response_user["login"]))  # TODO: Send user _id instead
         else:
-            insert.participant(oauth_token, state)
+            user_id = insert.participant(oauth_token, state)
             client = pymongo.MongoClient()
             pr_db = client.pr_database.state
-            return redirect(pr_db.find_one({"_id": ObjectId(state)})["feedback_url"])
+            return redirect(pr_db.find_one({"_id": ObjectId(state)})["feedback_url"] + "&userid=%s" % user_id)
 
 
 @app.route('/webhook', methods=['POST'])

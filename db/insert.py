@@ -167,7 +167,7 @@ def participant(oauth_token, state):
     }
     feedback_coll = client.pr_database.pr_feedback
     feedback_coll.insert_one({"_id": ObjectId(state), "user": user_info})
-
+    return user_info["id"]
 
 def feedback_into_participant(request, state):
     client = pymongo.MongoClient()
