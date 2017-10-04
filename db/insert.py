@@ -115,7 +115,7 @@ def context(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, code_pr
                 print("IGNORING" + str(e), file=sys.stderr)
 
 
-def participant(oauth_token, state):
+def participant_into_feedback(oauth_token, state):
     client = pymongo.MongoClient()
     response_user = requests.get("https://api.github.com/user",
                                  headers={'Authorization': 'token %s' % oauth_token}).json()
@@ -142,3 +142,24 @@ def participant(oauth_token, state):
         return redirect(result["pr_url"])
     else:
         return "DB entry not found", 500
+
+
+def participant(oauth_token):
+    client = pymongo.MongoClient()
+    response_user = requests.get("https://api.github.com/user",
+                                 headers={'Authorization': 'token %s' % oauth_token}).json()
+    user_info = {
+        "id": hashlib.sha256(str.encode(response_user["login"])).hexdigest(),
+        "public_repos": response_user["public_repos"],
+        "public_gists": response_user["public_gists"],
+        "followers": response_user["followers"],
+        "following": response_user["following"],
+        "created_at": response_user["created_at"],
+        "updated_at": response_user["updated_at"],
+        "private_gists": response_user["private_gists"],
+        "total_private_repos": response_user["total_private_repos"],
+        "owned_private_repos": response_user["owned_private_repos"],
+        "collaborators": response_user["collaborators"]
+    }
+    feedback_coll = client.pr_database.pr_feedback
+    return feedback_coll.insert_one(user_info).inserted_id

@@ -1,12 +1,13 @@
 from flask import Flask, request, redirect, session, g
 from flask_session import Session
 from flask.ext.github import GitHub
-from jwt import JWT, jwk_from_pem
+from jwt import jwk_from_pem
 from requests.auth import HTTPBasicAuth
 from util import io
 from util.user import User
 from db import insert
-import requests, json, urllib, pymongo, sys, time, hashlib
+from bson import ObjectId
+import requests, json, urllib, pymongo, sys, secrets
 
 
 app = Flask(__name__)
@@ -25,41 +26,79 @@ sess.init_app(app)
 github = GitHub(app)
 
 
+@app.route('/login')
+def login():
+    if session.get('user_token', None) is None:
+        return redirect('https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=report', 200)
+    else:
+        response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % session.get('user_token')}).json()
+        return redirect('http://chennai.ewi.tudelft.nl/report.html?user=%s' % (response_user["login"]), 200)  #TODO: Send user _id instead
+        # To pass avatar url: urllib.parse.quote_plus(response_user["avatar_url"]
+
+
+@app.route('/feedback')
+def feedback():
+    client = pymongo.MongoClient()
+    pr_db = client.pr_database
+    encoded_return_url = request.args.get('returnurl')
+    encoded_url = request.args.get('url')
+    pr_id = request.args.get('prid')
+    repo_id = request.args.get('repoid')
+    pr_num = request.args.get('prnum')
+    is_private_repo = request.args.get('private')
+    inst_id = request.args.get('instid', default='None')
+    state = secrets.token_hex(12)
+    feedback_url = "http://chennai.ewi.tudelft.nl:60001/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s&state=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, inst_id, state)
+    pr_db.state.insert_one({
+        "_id": ObjectId(state),
+        "feedback_url": feedback_url,
+        "installaton_id": inst_id
+        })
+    if session.get('user_token', None) is None:
+        return redirect('https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state)
+    else:
+        return redirect(feedback_url)
+
+
 @app.route('/submit', methods=['POST'])
 def submit():
     if request.json["action"] == 'feedback':
-        client = pymongo.MongoClient()
-        pr_db = client.pr_database
-        if session.get('user_token', None) is None:
-            state = insert.feedback(request.json, pr_db)
-            return 'https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state, 200
-        else:
-            return insert.feedback_with_participant(request, pr_db, session['user_token'])
+        return insert.feedback_into_participant(request.json, request.json["state"])
+
+    elif request.json["action"] == 'history':
+        return
 
     elif request.json["action"] == 'context':
-        client = pymongo.MongoClient()
-        pr_db = client.pr_database
         pr_num = request.json["pr_num"]
         full_repo_name = request.json["full_repo_name"]
         if request.json["inst_id"] != "None":
-            insert.context(pr_db, full_repo_name, pr_num, headers=get_auth_header(request.json["inst_id"]), code_privacy=request.json["code_privacy"])
+            insert.context(full_repo_name, pr_num, headers=io.get_auth_header(request.json["inst_id"], priv_key), code_privacy=request.json["code_privacy"])
         else:
-            insert.context(pr_db, full_repo_name, pr_num, http_auth=http_auth, code_privacy=request.json["code_privacy"])
+            insert.context(full_repo_name, pr_num, http_auth=http_auth, code_privacy=request.json["code_privacy"])
         return 'Context inserted into DB', 200
+
     else:
         return 'Request not handled', 501
 
 
 @app.route('/callback', methods=['GET', 'POST'])
 def callback_handler():
-    response = {'code': request.args.get('code'),
-                'client_id': client_config['GITHUB_CLIENT_ID'],
-                'client_secret': client_config['GITHUB_CLIENT_SECRET']}
-    r = requests.post("https://github.com/login/oauth/access_token", data=response, headers={'Accept': 'application/json'})
-    oauth_token = r.json()['access_token']
-    if oauth_token is not None:
-        session['user_token'] = oauth_token
-    return insert.participant(oauth_token, request.args.get('state'))
+        response = {'code': request.args.get('code'),
+                    'client_id': client_config['GITHUB_CLIENT_ID'],
+                    'client_secret': client_config['GITHUB_CLIENT_SECRET']}
+        r = requests.post("https://github.com/login/oauth/access_token", data=response, headers={'Accept': 'application/json'})
+        oauth_token = r.json()['access_token']
+        state = request.args.get('state')
+        if oauth_token is not None:
+            session['user_token'] = oauth_token
+        if state == 'report':
+            response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
+            return redirect('http://chennai.ewi.tudelft.nl/report.html?user=%s' % (response_user["login"]))  # TODO: Send user _id instead
+        else:
+            client = pymongo.MongoClient()
+            pr_db = client.state_database
+            insert.participant(oauth_token, state)
+            return redirect(pr_db.find_one({"_id": ObjectId(state)})["feedback_url"])
 
 
 @app.route('/webhook', methods=['POST'])
@@ -94,14 +133,12 @@ def webhook():
             # Send POST request to comment on the PR with feedback link
             pr_comment_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (parsed_json["pull_request"]["base"]["repo"]["full_name"], pr_num)
             if "installation" in request.json:
-                feedback_url = "http:/chennai.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (
-                encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
-                pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
-                r = requests.post(pr_comment_url, data=pr_comment_payload, headers=get_auth_header(request.json["installation"]["id"]))
+                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
+                pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
+                r = requests.post(pr_comment_url, data=pr_comment_payload, headers=io.get_auth_header(request.json["installation"]["id"], priv_key))
             else:
-                feedback_url = "http:/chennai.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (
-                encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
-                pr_comment_payload = json.dumps({"body": "Please provide your PR feedback [here](%s). " % feedback_url})
+                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
+                pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
                 r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
             if not is_private_repo:
                 io.download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
@@ -141,22 +178,6 @@ def before_request():
     g.user = None
     if 'user_token' in session:
         g.user = User(session['user_token'])
-
-
-def get_auth_header(installation_id):
-    payload = {"iss": 5168,
-               "iat": int(time.time()),
-               "exp": int(time.time()) + 300}
-    jwt = JWT()
-    token = jwt.encode(payload, priv_key, 'RS256')
-    # url = "https://api.github.com/app"
-    url = "https://api.github.com/installations/%s/access_tokens" % installation_id
-    headers = {'Accept': 'application/vnd.github.machine-man-preview+json',
-               'Authorization': 'Bearer ' + token}
-    r = requests.post(url, headers=headers)
-    ret_headers = {"Authorization": "token " + r.json()["token"],
-                   "Accept": "application/vnd.github.machine-man-preview+json"}
-    return ret_headers
 
 
 if __name__ == '__main__':

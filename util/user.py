@@ -1,6 +1,7 @@
 import pymongo
 from bson.objectid import ObjectId
 
+
 class User:
     id = None   # Primary Key
     github_access_token = None
