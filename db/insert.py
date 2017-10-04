@@ -3,14 +3,16 @@ from bson.objectid import ObjectId
 from flask import redirect
 
 
-def feedback(request, pr_db):
+def feedback(request):
     # Insert feedback into DB
+    pr_db = pymongo.MongoClient().pr_database
     del request["action"]
     return pr_db.pr_feedback.insert_one(request).inserted_id
 
 
-def feedback_with_participant(request, pr_db, oauth_token):
+def feedback_with_participant(request, oauth_token):
     del request["action"]
+    pr_db = pymongo.MongoClient().pr_database
     response_user = requests.get("https://api.github.com/user",
                                  headers={'Authorization': 'token %s' % oauth_token}).json()
     request["user"] = {
@@ -30,7 +32,8 @@ def feedback_with_participant(request, pr_db, oauth_token):
     return redirect(request['pr_url'])
 
 
-def context(pr_db, full_repo_name, pr_num, http_auth=None, headers=None, code_privacy=False):
+def context(full_repo_name, pr_num, http_auth=None, headers=None, code_privacy=False):
+    pr_db = pymongo.MongoClient().pr_database
     # Insert PR info into DB
     request_url = 'https://api.github.com/repos/%s/pulls/%s' % (full_repo_name, pr_num)
     if headers is not None:
@@ -133,9 +136,10 @@ def participant_into_feedback(oauth_token, state):
         "collaborators": response_user["collaborators"]
     }
     feedback_coll = client.pr_database.pr_feedback
-    result = feedback_coll.find_one({"_id": ObjectId(state)})
+    obj_id = ObjectId(state)
+    result = feedback_coll.find_one({"_id": obj_id})
     feedback_coll.update_one(
-        {"_id": ObjectId(state)},
+        {"_id": obj_id},
         {"$set": {"user": user_info}}
     )
     if result["pr_url"] is not None:
@@ -144,7 +148,7 @@ def participant_into_feedback(oauth_token, state):
         return "DB entry not found", 500
 
 
-def participant(oauth_token):
+def participant(oauth_token, state):
     client = pymongo.MongoClient()
     response_user = requests.get("https://api.github.com/user",
                                  headers={'Authorization': 'token %s' % oauth_token}).json()
@@ -162,4 +166,15 @@ def participant(oauth_token):
         "collaborators": response_user["collaborators"]
     }
     feedback_coll = client.pr_database.pr_feedback
-    return feedback_coll.insert_one(user_info).inserted_id
+    feedback_coll.insert_one({"_id": ObjectId(state), "user": user_info})
+
+
+def feedback_into_participant(request, state):
+    client = pymongo.MongoClient()
+    feedback_coll = client.pr_database.pr_feedback
+    del request["action"]
+    del request["state"]
+    obj_id = ObjectId(state)
+    request["user"] = feedback_coll.find_one({"_id": obj_id})["user"]
+    request["_id"] = obj_id
+    feedback_coll.replace_one({"_id": obj_id}, request)
