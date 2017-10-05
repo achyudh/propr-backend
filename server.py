@@ -64,7 +64,11 @@ def feedback():
 @app.route('/submit', methods=['POST'])
 def submit():
     if request.json["action"] == 'history':
-        return jsonify(fetch.form_history(request.json["user_id"], request.json["pr_url"]))
+        history = fetch.form_history(request.json["user_id"], request.json["pr_url"])
+        if history is not None:
+            return jsonify(history)
+        else:
+            return "None", 204
 
     elif request.json["action"] == 'feedback':
         pr_num = request.json["pr_num"]
