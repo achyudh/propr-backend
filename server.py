@@ -105,7 +105,7 @@ def callback_handler():
             session['user_token'] = oauth_token
         if state == 'report':
             response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
-            return redirect('http://chennai.ewi.tudelft.nl/profile.html?user=%s' % (response_user["login"]))  # TODO: Send user _id instead
+            return redirect('http://chennai.ewi.tudelft.nl:60001/profile.html?userid=%s' % (response_user["login"]))  # TODO: Send user _id instead
         else:
             user_id = insert.participant(oauth_token, state)
             client = pymongo.MongoClient()
