@@ -32,9 +32,9 @@ def login():
         return redirect('https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=report', 200)
     else:
         response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % session.get('user_token')}).json()
-        return redirect('http://chennai.ewi.tudelft.nl/report.html?user=%s' % (response_user["login"]), 200)  #TODO: Send user _id instead
-        # To pass avatar url: urllib.parse.quote_plus(response_user["avatar_url"]
-
+        pr_db = pymongo.MongoClient().pr_database
+        user_id = pr_db.report_users.insert_one(response_user).inserted_id
+        return redirect('http://chennai.ewi.tudelft.nl:60001/profile.html?userid=%s' % user_id)
 
 @app.route('/feedback')
 def feedback():
@@ -105,7 +105,9 @@ def callback_handler():
             session['user_token'] = oauth_token
         if state == 'report':
             response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
-            return redirect('http://chennai.ewi.tudelft.nl:60001/profile.html?userid=%s' % (response_user["login"]))  # TODO: Send user _id instead
+            pr_db = pymongo.MongoClient().pr_database
+            user_id = pr_db.report_users.insert_one(response_user).inserted_id
+            return redirect('http://chennai.ewi.tudelft.nl:60001/profile.html?userid=%s' % user_id)
         else:
             user_id = insert.participant(oauth_token, state)
             client = pymongo.MongoClient()
