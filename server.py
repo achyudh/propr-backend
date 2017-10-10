@@ -36,6 +36,7 @@ def login():
         user_id = pr_db.report_users.insert_one(response_user).inserted_id
         return redirect('http://chennai.ewi.tudelft.nl:60001/profile.html?userid=%s' % user_id)
 
+
 @app.route('/feedback')
 def feedback():
     client = pymongo.MongoClient()

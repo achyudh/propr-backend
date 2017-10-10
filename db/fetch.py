@@ -1,5 +1,4 @@
-import requests, pymongo
-from bson.objectid import ObjectId
+import pymongo, sys
 
 
 def form_history(user_id, pr_url):
