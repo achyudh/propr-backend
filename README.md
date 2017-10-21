@@ -1,4 +1,4 @@
-# Pull Request Feedback Servlet
+# Propr Server
 A webhook server that listens for POST requests from certain Github repos whenever a decision is taken on a pull request and provides a form to collect feedback from the developers by commenting on the pull request like a bot. This servlet also handles authentication and all the back-end operations for the working of feedback form and report generation. 
 
 ![](https://raw.githubusercontent.com/achyudhk/Pull-Request-Feedback-Bot/master/doc/screenshot.png)
