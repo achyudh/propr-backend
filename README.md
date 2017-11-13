@@ -1,14 +1,14 @@
 # Propr
 #### Website: http://propr.tudelft.nl/  |  Blog: https://goo.gl/HUDa72
 
-<p align="center">
-<img src="https://github.com/achyudhk/Propr-Website/blob/master/img/propr_logo_straight.png" width="360">
-</p>
-
 ## What is propr?
 If you are an integrator who has longed for a platform to anonymously provide feedback to the contributors, specifically on how they could make their pull requests easier to review, propr is the right platform for you.
 
 If you are a developer contributing to a project that uses propr and you want to know how your pull requests fare, you should check out the reports dashboard here: http://propr.tudelft.nl/report.html
+
+<p align="center">
+<img src="https://github.com/achyudhk/Propr-Website/blob/master/img/propr_logo_straight.png" width="360">
+</p>
 
 ## Assess pull request reviewability
 Rarely do you ever see anyone commenting on what they liked about a pull request or what made it easy to review. Further, comments on pull requests addressing how future patches could be made better detract from the technical heat of the argument at hand. These types of comments send positive or negative signals to the developers helping them shape future patches. GitHub may not be the right platform to deal with these aspects of pull requests that are in-fact necessary. With detailed feedback on their pull requests, contributors will no longer make pull requests with a goal of just getting it in. All of this results in less time spent reviewing code and well formed patches.
