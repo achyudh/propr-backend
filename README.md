@@ -1,5 +1,20 @@
-# Propr Server
-A webhook server that listens for POST requests from certain GithH
+# Propr
+#### Website: http://propr.tudelft.nl/
+#### Blog: https://goo.gl/HUDa72
+
+## What is propr?
+If you are an integrator who has longed for a platform to anonymously provide feedback to the contributors, specifically on how they could make their pull requests easier to review, propr is the right platform for you.
+
+If you are a developer contributing to a project that uses propr and you want to know how your pull requests fare, you should check out the reports dashboard here: http://propr.tudelft.nl/report.html
+
+## Assess pull request reviewability
+Rarely do you ever see anyone commenting on what they liked about a pull request or what made it easy to review. Further, comments on pull requests addressing how future patches could be made better detract from the technical heat of the argument at hand. These types of comments send positive or negative signals to the developers helping them shape future patches. GitHub may not be the right platform to deal with these aspects of pull requests that are in-fact necessary. With detailed feedback on their pull requests, contributors will no longer make pull requests with a goal of just getting it in. All of this results in less time spent reviewing code and well formed patches.
+
+Presently, there is no way to collate feedback from integrators and project managers through GitHub over multiple pull requests and a range of projects. The reports dashboard to the rescue! Contributors to projects that use propr can readily see how their pull requests are doing, and how they can improve them.
+
+## Repository contents:
+A webhook server that listens for POST requests from installed GitHub repositories. This has the code for the back-end server.
+If you are looking for the frontend, head on over to https://github.com/achyudhk/Propr-Website. 
 ## Getting started:
 ### Prerequisites:
 This extension is a Python script that uses Flask, among other inbuilt Python libraries. You will need a recent version of Python 3 with Flask installed. ALternatively, you can just use Anaconda3.
