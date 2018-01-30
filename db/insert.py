@@ -1,6 +1,14 @@
-import requests, hashlib, sys, pymongo
+import requests, hashlib, sys, pymongo, datetime
 from bson.objectid import ObjectId
 from flask import redirect
+
+
+def moz_feedback(request):
+    # Insert feedback into DB
+    pr_db = pymongo.MongoClient().pr_database
+    del request["action"]
+    request["time"] = str(datetime.datetime.now())
+    return pr_db.moz_feedback.insert_one(request).inserted_id
 
 
 def feedback(request):
@@ -23,9 +31,6 @@ def feedback_with_participant(request, oauth_token):
         "following": response_user["following"],
         "created_at": response_user["created_at"],
         "updated_at": response_user["updated_at"],
-        "private_gists": response_user["private_gists"],
-        "total_private_repos": response_user["total_private_repos"],
-        "owned_private_repos": response_user["owned_private_repos"],
         "collaborators": response_user["collaborators"]
     }
     pr_db.pr_feedback.insert_one(request)
@@ -130,10 +135,6 @@ def participant_into_feedback(oauth_token, state):
         "following": response_user["following"],
         "created_at": response_user["created_at"],
         "updated_at": response_user["updated_at"],
-        "private_gists": response_user["private_gists"],
-        "total_private_repos": response_user["total_private_repos"],
-        "owned_private_repos": response_user["owned_private_repos"],
-        "collaborators": response_user["collaborators"]
     }
     feedback_coll = client.pr_database.pr_feedback
     obj_id = ObjectId(state)
@@ -160,10 +161,6 @@ def participant(oauth_token, state):
         "following": response_user["following"],
         "created_at": response_user["created_at"],
         "updated_at": response_user["updated_at"],
-        "private_gists": response_user["private_gists"],
-        "total_private_repos": response_user["total_private_repos"],
-        "owned_private_repos": response_user["owned_private_repos"],
-        "collaborators": response_user["collaborators"]
     }
     feedback_coll = client.pr_database.pr_feedback
     feedback_coll.insert_one({"_id": ObjectId(state), "user": user_info})
