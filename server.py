@@ -34,7 +34,7 @@ def login():
         response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % session.get('user_token')}).json()
         pr_db = pymongo.MongoClient().pr_database
         user_id = pr_db.report_users.insert_one(response_user).inserted_id
-        return redirect('http://chennai.ewi.tudelft.nl:60001/profile.html?userid=%s' % user_id)
+        return redirect('http://propr.tudelft.nl/profile.html?userid=%s' % user_id)
 
 
 @app.route('/feedback')
@@ -49,14 +49,14 @@ def feedback():
     is_private_repo = request.args.get('private')
     inst_id = request.args.get('instid', default='None')
     state = secrets.token_hex(12)
-    feedback_url = "http://chennai.ewi.tudelft.nl:60001/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s&state=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, inst_id, state)
+    feedback_url = "http://propr.tudelft.nl/feedback.html?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s&state=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, inst_id, state)
     pr_db.state.insert_one({
         "_id": ObjectId(state),
         "feedback_url": feedback_url,
         "installaton_id": inst_id
         })
     if session.get('user_token', None) is None:
-        return redirect('https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&scope=user&state=%s' % state)
+        return redirect('https://github.com/login/oauth/authorize?client_id=96d3befa08fccb14296c&state=%s' % state)
     else:
         user_id = insert.participant(session.get('user_token'), state)
         return redirect(feedback_url + "&userid=%s" % user_id)
@@ -79,6 +79,10 @@ def submit():
             insert.context(full_repo_name, pr_num, headers=io.get_auth_header(request.json["inst_id"], priv_key), code_privacy=request.json["code_privacy"])
         else:
             insert.context(full_repo_name, pr_num, http_auth=http_auth, code_privacy=request.json["code_privacy"])
+        return 'Feedback inserted into DB', 200
+
+    elif request.json["action"] == "moz_feedback":
+        insert.moz_feedback(request.json)
         return 'Feedback inserted into DB', 200
 
     elif request.json["action"] == 'context':
@@ -108,7 +112,7 @@ def callback_handler():
             response_user = requests.get("https://api.github.com/user", headers={'Authorization': 'token %s' % oauth_token}).json()
             pr_db = pymongo.MongoClient().pr_database
             user_id = pr_db.report_users.insert_one(response_user).inserted_id
-            return redirect('http://chennai.ewi.tudelft.nl:60001/profile.html?userid=%s' % user_id)
+            return redirect('http://propr.tudelft.nl/profile.html?userid=%s' % user_id)
         else:
             user_id = insert.participant(oauth_token, state)
             client = pymongo.MongoClient()
@@ -118,50 +122,51 @@ def callback_handler():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    if request.method == 'POST':
-        if request.json is None:
-            print("NULL REQUEST: " + request.headers, file=sys.stderr)
-            return '', 500
+    if request.json is None:
+        print("NULL REQUEST: " + request.headers, file=sys.stderr)
+        return '', 400
 
-        elif "action" not in request.json and request.headers['X-GitHub-Event'] == "ping":
-            # POST request has initial webhook and repo details
-            client = pymongo.MongoClient()
-            pr_db = client.pr_database
-            # Insert init repo info into DB
-            pr_db.webhook_init.insert_one(request.json)
-            return '', 200
+    elif "action" not in request.json and request.headers['X-GitHub-Event'] == "ping":
+        # POST request has initial webhook and repo details
+        client = pymongo.MongoClient()
+        pr_db = client.pr_database
+        # Insert init repo info into DB
+        pr_db.webhook_init.insert_one(request.json)
+        return '', 200
 
-        elif request.json["action"] == "created" and request.headers['X-GitHub-Event'] == "installation":
-            return 'Install successful', 200
+    elif request.json.get("action", None) == "created" and request.headers['X-GitHub-Event'] == "installation":
+        client = pymongo.MongoClient()
+        pr_db = client.pr_database
+        # Insert init repo info into DB
+        pr_db.app_init.insert_one(request.json)
+        return 'Install successful', 200
 
-        elif request.json["action"] == "closed" and request.headers['X-GitHub-Event'] == "pull_request":
-            parsed_json = request.json
-            is_private_repo = request.json["pull_request"]["base"]["repo"]["private"]
-            pr_num = parsed_json["pull_request"]["number"]
-            pr_id = parsed_json["pull_request"]["id"]
-            repo_id = parsed_json["pull_request"]["base"]["repo"]["id"]
+    elif request.json.get("action", None) == "closed" and request.headers['X-GitHub-Event'] == "pull_request":
+        parsed_json = request.json
+        is_private_repo = request.json["pull_request"]["base"]["repo"]["private"]
+        pr_num = parsed_json["pull_request"]["number"]
+        pr_id = parsed_json["pull_request"]["id"]
+        repo_id = parsed_json["pull_request"]["base"]["repo"]["id"]
 
-            # Only part of the repo URL is encoded: the owner and repo name
-            encoded_url = urllib.parse.quote_plus(parsed_json["pull_request"]["base"]["repo"]["full_name"])
-            # This is the entire URL of the PR to which the user iis redirected to once the form is filled
-            encoded_return_url = urllib.parse.quote_plus(parsed_json["pull_request"]["html_url"])
-            # Send POST request to comment on the PR with feedback link
-            pr_comment_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (parsed_json["pull_request"]["base"]["repo"]["full_name"], pr_num)
-            if "installation" in request.json:
-                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
-                pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
-                r = requests.post(pr_comment_url, data=pr_comment_payload, headers=io.get_auth_header(request.json["installation"]["id"], priv_key))
-            else:
-                feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
-                pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
-                r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
-            if not is_private_repo:
-                io.download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
-            return str((r.headers, r.json())), 200
+        # Only part of the repo URL is encoded: the owner and repo name
+        encoded_url = urllib.parse.quote_plus(parsed_json["pull_request"]["base"]["repo"]["full_name"])
+        # This is the entire URL of the PR to which the user iis redirected to once the form is filled
+        encoded_return_url = urllib.parse.quote_plus(parsed_json["pull_request"]["html_url"])
+        # Send POST request to comment on the PR with feedback link
+        pr_comment_url = 'https://api.github.com/repos/%s/issues/%s/comments' % (parsed_json["pull_request"]["base"]["repo"]["full_name"], pr_num)
+        if "installation" in request.json:
+            feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=%s" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo, request.json["installation"]["id"])
+            pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
+            r = requests.post(pr_comment_url, data=pr_comment_payload, headers=io.get_auth_header(request.json["installation"]["id"], priv_key))
         else:
-            return 'Request not handled', 501
+            feedback_url = "http:/chennai.ewi.tudelft.nl:60002/feedback?returnurl=%s&url=%s&prid=%s&repoid=%s&prnum=%s&private=%s&instid=None" % (encoded_return_url, encoded_url, pr_id, repo_id, pr_num, is_private_repo)
+            pr_comment_payload = json.dumps({"body": "Please provide your feedback on this pull request [here](%s).\n\n**Privacy statement**: We don't store any personal information such as your email address or name. We ask for GitHub authentication as an anonymous identifier to account for duplicate feedback entries and to see people specific preferences." % feedback_url})
+            r = requests.post(pr_comment_url, data=pr_comment_payload, auth=http_auth)
+        if not is_private_repo:
+            io.download_patch(parsed_json["pull_request"]["patch_url"], http_auth, pr_id, repo_id)
+        return str((r.headers, r.json())), 200
     else:
-        return 'Not a POST request', 405
+        return 'Request not handled', 202
 
 
 @app.route('/redir', methods=['POST'])
