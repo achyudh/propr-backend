@@ -20,7 +20,7 @@ A webhook server that listens for POST requests from installed GitHub repositori
 If you are looking for the frontend, head on over to https://github.com/achyudhk/Propr-Website. 
 ## Getting started:
 ### Prerequisites:
-This extension is a Python script that uses Flask, among other inbuilt Python libraries. You will need a recent version of Python 3 with Flask installed. ALternatively, you can just use Anaconda3.
+This extension is a Python script that uses Flask, among other inbuilt Python libraries. You will need a recent version of Python 3 with Flask installed. Alternatively, you can just use Anaconda3.
 ### Setup:
 You can run the server.py as a standard Flask app as shown inthe [docs](http://flask.pocoo.org/docs/0.12/). To enable a project to use this feedback boot, the project must have a webhook which connects to the IP address of the machine that is running the servlet. The option to add a webhook can be found under Settings -> Webhooks. Ensure that the only data that is beThis also/creating/). 
 
