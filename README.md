@@ -17,7 +17,7 @@ Presently, there is no way to collate feedback from integrators and project mana
 
 ## Repository contents:
 A webhook server that listens for POST requests from installed GitHub repositories. This has the code for the back-end server.
-If you are looking for the frontend, head on over to https://github.com/achyudhk/Propr-Website. 
+If you are looking for the frontend, head on over to https://github.com/achyudh/propr-frontend. 
 ## Getting started:
 ### Prerequisites:
 This extension is a Python script that uses Flask, among other inbuilt Python libraries. You will need a recent version of Python 3 with Flask installed. Alternatively, you can just use Anaconda3.
