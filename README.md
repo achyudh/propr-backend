@@ -1,8 +1,8 @@
 # Propr
-#### Website: http://propr.tudelft.nl/  |  Blog: https://goo.gl/HUDa72
 
 ## What is propr?
-If you are an integrator who has longed for a platform to anonymously provide feedback to the contributors, specifically on how they could make their pull requests easier to review, propr is the right platform for you.
+If you are an integrator who has longed for a platform to anonymously provide feedback to the contributors, specifically on how they could make their pull requests easier to review, propr is the right platform for you. If you want to learn more about propr, check out our blog post: https://goo.gl/HUDa72.
+
 
 If you are a developer contributing to a project that uses propr and you want to know how your pull requests fare, you should check out the reports dashboard here: http://propr.tudelft.nl/report.html
 
